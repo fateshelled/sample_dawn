@@ -14,6 +14,13 @@ include_directories("${GLFW_DIR}/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/dawn/include")
 include_directories("${CMAKE_CURRENT_BINARY_DIR}/dawn/gen/include")
 
+add_executable(device_query 
+    device_query.cpp 
+)
+target_link_libraries(device_query PRIVATE 
+    webgpu_dawn
+)
+
 add_executable(ply_viewer 
     main.cpp 
     PlyLoader.cpp 
