@@ -3,6 +3,8 @@
 #include <dawn/native/DawnNative.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
+#include <algorithm>
+#include <cfloat>
 
 Renderer::Renderer() {}
 
@@ -59,7 +61,7 @@ struct VertexOutput {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = vec4<f32>(input.position * 0.05 - vec3<f32>(0.0, 0.0, 2.0), 1.0);
+    output.position = vec4<f32>(input.position.xy, input.position.z * 0.5 + 0.5, 1.0);
     let c = input.intensity / 255.0;
     output.color = vec4<f32>(c, c, c, 1.0);
     return output;
@@ -116,11 +118,37 @@ bool Renderer::InitPipeline() {
 
 void Renderer::SetVertices(const std::vector<Vertex>& vertices) {
     vertexCount = static_cast<uint32_t>(vertices.size());
+
+    // Compute bounding box
+    float minX = FLT_MAX, maxX = -FLT_MAX;
+    float minY = FLT_MAX, maxY = -FLT_MAX;
+    float minZ = FLT_MAX, maxZ = -FLT_MAX;
+    for (const auto& v : vertices) {
+        minX = std::min(minX, v.x); maxX = std::max(maxX, v.x);
+        minY = std::min(minY, v.y); maxY = std::max(maxY, v.y);
+        minZ = std::min(minZ, v.z); maxZ = std::max(maxZ, v.z);
+    }
+
+    // Center and scale to fit within [-0.9, 0.9]
+    float centerX = (minX + maxX) / 2.0f;
+    float centerY = (minY + maxY) / 2.0f;
+    float centerZ = (minZ + maxZ) / 2.0f;
+    float maxExtent = std::max({maxX - minX, maxY - minY, maxZ - minZ});
+    float scale = 1.8f / maxExtent;
+
+    std::vector<Vertex> normalized(vertices.size());
+    for (size_t i = 0; i < vertices.size(); ++i) {
+        normalized[i].x = (vertices[i].x - centerX) * scale;
+        normalized[i].y = (vertices[i].y - centerY) * scale;
+        normalized[i].z = (vertices[i].z - centerZ) * scale;
+        normalized[i].intensity = vertices[i].intensity;
+    }
+
     wgpu::BufferDescriptor bufferDesc = {};
-    bufferDesc.size = vertices.size() * sizeof(Vertex);
+    bufferDesc.size = normalized.size() * sizeof(Vertex);
     bufferDesc.usage = wgpu::BufferUsage::Vertex | wgpu::BufferUsage::CopyDst;
     vertexBuffer = device.CreateBuffer(&bufferDesc);
-    queue.WriteBuffer(vertexBuffer, 0, vertices.data(), bufferDesc.size);
+    queue.WriteBuffer(vertexBuffer, 0, normalized.data(), bufferDesc.size);
 }
 
 void Renderer::Render() {
