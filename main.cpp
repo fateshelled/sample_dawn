@@ -11,6 +11,20 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
     }
 }
 
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+    Renderer* renderer = reinterpret_cast<Renderer*>(glfwGetWindowUserPointer(window));
+    if (renderer) {
+        renderer->OnMouseButton(button, action, mods);
+    }
+}
+
+void cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
+    Renderer* renderer = reinterpret_cast<Renderer*>(glfwGetWindowUserPointer(window));
+    if (renderer) {
+        renderer->OnCursorPos(xpos, ypos);
+    }
+}
+
 int main(int argc, char** argv) {
     std::string filename;
     std::string preferredDevice;
@@ -52,6 +66,8 @@ int main(int argc, char** argv) {
 
     glfwSetWindowUserPointer(window, &renderer);
     glfwSetScrollCallback(window, scroll_callback);
+    glfwSetMouseButtonCallback(window, mouse_button_callback);
+    glfwSetCursorPosCallback(window, cursor_position_callback);
 
     renderer.SetVertices(vertices);
 

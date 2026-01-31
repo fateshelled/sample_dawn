@@ -86,6 +86,7 @@ bool Renderer::InitDevice(const std::string& preferredDevice) {
 }
 
 bool Renderer::InitSurface(GLFWwindow* window) {
+    this->window = window;
     surface = wgpu::glfw::CreateSurfaceForWindow(instance, window);
     if (!surface) return false;
 
@@ -113,6 +114,7 @@ struct VertexOutput {
 
 struct Uniforms {
     scale : f32,
+    translation : vec2<f32>,
 };
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
 
@@ -121,7 +123,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
     // Apply zoom scale. Note: input is already normalized to [-0.9, 0.9] range roughly.
     // We scale x and y by zoom level.
-    output.position = vec4<f32>(input.position.xy * uniforms.scale, input.position.z * 0.5 + 0.5, 1.0);
+    output.position = vec4<f32>(input.position.xy * uniforms.scale + uniforms.translation, input.position.z * 0.5 + 0.5, 1.0);
     let c = input.intensity / 255.0;
     output.color = vec4<f32>(c, c, c, 1.0);
     return output;
@@ -279,5 +281,50 @@ void Renderer::Zoom(float delta) {
 void Renderer::UpdateUniforms() {
     Uniforms u;
     u.scale = zoomLevel;
+    u.padding1 = 0.0f;
+    u.translation[0] = translationX;
+    u.translation[1] = translationY;
     queue.WriteBuffer(uniformBuffer, 0, &u, sizeof(Uniforms));
+}
+
+void Renderer::Pan(float dx, float dy) {
+    translationX += dx;
+    translationY += dy;
+    UpdateUniforms();
+}
+
+void Renderer::OnMouseButton(int button, int action, int mods) {
+    if (button == GLFW_MOUSE_BUTTON_LEFT) {
+        if (action == GLFW_PRESS) {
+            isDragging = true;
+            if (window) {
+                glfwGetCursorPos(window, &lastMouseX, &lastMouseY);
+            }
+        } else if (action == GLFW_RELEASE) {
+            isDragging = false;
+        }
+    }
+}
+
+void Renderer::OnCursorPos(double x, double y) {
+    if (isDragging) {
+        float deltaX = static_cast<float>(x - lastMouseX);
+        float deltaY = static_cast<float>(y - lastMouseY);
+        lastMouseX = x;
+        lastMouseY = y;
+
+        int width = 800, height = 600;
+        if (window) {
+            glfwGetWindowSize(window, &width, &height);
+        }
+
+        // Convert pixel delta to clip space delta
+        // Screen is [-1, 1] in width and height.
+        // Scale factor: 2.0 / dimension
+        // Invert Y because screen Y is top-down (0 at top), Clip Y is bottom-up (-1 at bottom, 1 at top)
+        float ndcDeltaX = deltaX * (2.0f / width);
+        float ndcDeltaY = deltaY * (-2.0f / height); 
+
+        Pan(ndcDeltaX, ndcDeltaY);
+    }
 }

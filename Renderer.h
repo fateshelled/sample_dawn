@@ -8,11 +8,8 @@ struct GLFWwindow;
 
 struct Uniforms {
     float scale;
-    float padding[3]; // Padding to align to 16 bytes if necessary, though float is 4 bytes. 
-                      // Uniform buffers usually require 16-byte alignment for structs in some backends/languages,
-                      // but single float might be fine. Safe to pad or just align in shader.
-                      // Let's stick to simple scalar if possible, but padding is safer for std140 layout compatibility if we expand.
-                      // For a single float, simple is okay, but let's be explicit about the structure we bind.
+    float padding1; // Pad to align translation to 8 bytes
+    float translation[2]; // offset 8
 };
 
 
@@ -25,6 +22,9 @@ public:
     void SetVertices(const std::vector<Vertex>& vertices);
     void Render();
     void Zoom(float delta);
+    void Pan(float dx, float dy);
+    void OnMouseButton(int button, int action, int mods);
+    void OnCursorPos(double x, double y);
 
 private:
     void UpdateUniforms();
@@ -43,7 +43,13 @@ private:
     wgpu::BindGroupLayout bindGroupLayout; // Store layout if needed, or just create it temporarily. Better to keep if we change pipeline.
 
     float zoomLevel = 1.0f;
-
+    float translationX = 0.0f;
+    float translationY = 0.0f;
+    
+    bool isDragging = false;
+    double lastMouseX = 0.0;
+    double lastMouseY = 0.0;
+    GLFWwindow* window = nullptr;
 
     bool InitDevice(const std::string& preferredDevice);
     bool InitSurface(GLFWwindow* window);
