@@ -44,6 +44,7 @@ private:
     float zoomLevel = 1.0f;
     float translationX = 0.0f;
     float translationY = 0.0f;
+    float translationZ = 0.0f;
     float rotationX = 0.0f;
     float rotationY = 0.0f;
     

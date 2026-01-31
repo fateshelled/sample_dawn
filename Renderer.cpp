@@ -59,6 +59,16 @@ namespace {
             return res;
         }
 
+        Mat4 Transpose() const {
+            Mat4 res = {};
+            for (int r = 0; r < 4; ++r) {
+                for (int c = 0; c < 4; ++c) {
+                    res.m[r * 4 + c] = m[c * 4 + r];
+                }
+            }
+            return res;
+        }
+
         Mat4 operator*(const Mat4& other) const {
             Mat4 res = {};
             for (int c = 0; c < 4; ++c) {
@@ -354,8 +364,28 @@ void Renderer::UpdateUniforms() {
     }
 
     Mat4 projection = Mat4::Perspective(3.14159f / 4.0f, aspect, 0.1f, 100.0f);
-    Mat4 view = Mat4::Translation(translationX, translationY, -2.0f); // Camera matches translation
-    Mat4 model = Mat4::RotationX(rotationX) * Mat4::RotationY(rotationY) * Mat4::Scale(zoomLevel);
+    
+    // New Logic: 
+    // 1. Scale object
+    // 2. Translate object (TranslationX/Y/Z) - This moves object relative to the center
+    // 3. Rotate World (RotationX/Y) - This rotates the "stage"
+    // 4. View Translate (0,0,-2) - Moves camera back to see the stage at center
+    
+    // MVP = P * View * Rotation * Translation * Scale 
+    // But since we want "Screen Center Rotation", the Rotation must happen AFTER object translation?
+    // Wait, if we want orbit:
+    // Rotate, Then Translate? -> Object rotates around itself, then moves. (Old behavior)
+    // Translate, Then Rotate? -> Object moves away from center, then rotates around center. (Orbit)
+    
+    // Correct Order for "Orbiting world origin":
+    // MVP = P * View(fixed) * Rotation * Translation(object) * Scale
+    
+    Mat4 view = Mat4::Translation(0.0f, 0.0f, -2.0f); 
+    Mat4 rotation = Mat4::RotationX(rotationX) * Mat4::RotationY(rotationY);
+    Mat4 translation = Mat4::Translation(translationX, translationY, translationZ);
+    Mat4 scale = Mat4::Scale(zoomLevel);
+    
+    Mat4 model = rotation * translation * scale;
     
     Mat4 mvp = projection * view * model;
 
@@ -365,8 +395,35 @@ void Renderer::UpdateUniforms() {
 }
 
 void Renderer::Pan(float dx, float dy) {
-    translationX += dx;
-    translationY += dy;
+    // We need to move the object such that it moves (dx, dy) on screen.
+    // The object is transformed by Rotation * Translation.
+    // Screen Motion = Rotation * Object Motion
+    // Object Motion = Inverse(Rotation) * Screen Motion
+    
+    // Rotation Matrix (matching UpdateUniforms order: X * Y)
+    // Actually UpdateUniforms uses RotX * RotY.
+    // Inverse is (RotX * RotY)^T = RotY^T * RotX^T
+    
+    Mat4 rotX = Mat4::RotationX(rotationX);
+    Mat4 rotY = Mat4::RotationY(rotationY);
+    Mat4 rotation = rotX * rotY;
+    Mat4 invRot = rotation.Transpose(); // Rotation matrix inverse is transpose
+    
+    // Screen delta vector (dx, dy, 0)
+    // We want to find (tx, ty, tz) such that Rotation * (tx,ty,tz) = (dx,dy,0)
+    float vx = dx;
+    float vy = dy;
+    float vz = 0.0f;
+    
+    // Apply Inverse Rotation: invRot * vector
+    float tx = invRot.m[0]*vx + invRot.m[4]*vy + invRot.m[8]*vz;
+    float ty = invRot.m[1]*vx + invRot.m[5]*vy + invRot.m[9]*vz;
+    float tz = invRot.m[2]*vx + invRot.m[6]*vy + invRot.m[10]*vz;
+
+    translationX += tx;
+    translationY += ty;
+    translationZ += tz;
+    
     UpdateUniforms();
 }
 
