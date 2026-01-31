@@ -7,9 +7,7 @@
 struct GLFWwindow;
 
 struct Uniforms {
-    float scale;
-    float padding1; // Pad to align translation to 8 bytes
-    float translation[2]; // offset 8
+    float mvp[16];
 };
 
 
@@ -40,13 +38,18 @@ private:
 
     wgpu::Buffer uniformBuffer;
     wgpu::BindGroup bindGroup;
-    wgpu::BindGroupLayout bindGroupLayout; // Store layout if needed, or just create it temporarily. Better to keep if we change pipeline.
+    wgpu::BindGroupLayout bindGroupLayout;
 
+    // Camera State
     float zoomLevel = 1.0f;
     float translationX = 0.0f;
     float translationY = 0.0f;
+    float rotationX = 0.0f;
+    float rotationY = 0.0f;
     
-    bool isDragging = false;
+    // Mouse State
+    bool isDraggingLeft = false;
+    bool isDraggingRight = false;
     double lastMouseX = 0.0;
     double lastMouseY = 0.0;
     GLFWwindow* window = nullptr;

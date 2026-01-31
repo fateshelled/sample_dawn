@@ -4,7 +4,77 @@
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <cfloat>
+
+namespace {
+    struct Mat4 {
+        float m[16];
+
+        static Mat4 Identity() {
+            Mat4 res = {};
+            res.m[0] = 1.0f; res.m[5] = 1.0f; res.m[10] = 1.0f; res.m[15] = 1.0f;
+            return res;
+        }
+
+        static Mat4 Perspective(float fovY, float aspect, float nearZ, float farZ) {
+            float f = 1.0f / std::tan(fovY / 2.0f);
+            Mat4 res = {};
+            res.m[0] = f / aspect;
+            res.m[5] = f;
+            res.m[10] = farZ / (nearZ - farZ);
+            res.m[11] = -1.0f;
+            res.m[14] = (farZ * nearZ) / (nearZ - farZ);
+            return res;
+        }
+
+        static Mat4 Translation(float x, float y, float z) {
+            Mat4 res = Identity();
+            res.m[12] = x; res.m[13] = y; res.m[14] = z;
+            return res;
+        }
+
+        static Mat4 Scale(float s) {
+            Mat4 res = Identity();
+            res.m[0] = s; res.m[5] = s; res.m[10] = s;
+            return res;
+        }
+
+        static Mat4 RotationX(float angle) {
+            Mat4 res = Identity();
+            float c = std::cos(angle);
+            float s = std::sin(angle);
+            res.m[5] = c; res.m[6] = s;
+            res.m[9] = -s; res.m[10] = c;
+            return res;
+        }
+
+        static Mat4 RotationY(float angle) {
+            Mat4 res = Identity();
+            float c = std::cos(angle);
+            float s = std::sin(angle);
+            res.m[0] = c; res.m[2] = -s;
+            res.m[8] = s; res.m[10] = c;
+            return res;
+        }
+
+        Mat4 operator*(const Mat4& other) const {
+            Mat4 res = {};
+            for (int c = 0; c < 4; ++c) {
+                for (int r = 0; r < 4; ++r) {
+                    res.m[c * 4 + r] = 
+                        m[0 * 4 + r] * other.m[c * 4 + 0] +
+                        m[1 * 4 + r] * other.m[c * 4 + 1] +
+                        m[2 * 4 + r] * other.m[c * 4 + 2] +
+                        m[3 * 4 + r] * other.m[c * 4 + 3];
+                }
+            }
+            return res;
+        }
+    };
+}
+
 
 Renderer::Renderer() {}
 
@@ -113,17 +183,14 @@ struct VertexOutput {
 };
 
 struct Uniforms {
-    scale : f32,
-    translation : vec2<f32>,
+    mvp : mat4x4<f32>,
 };
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
 
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    // Apply zoom scale. Note: input is already normalized to [-0.9, 0.9] range roughly.
-    // We scale x and y by zoom level.
-    output.position = vec4<f32>(input.position.xy * uniforms.scale + uniforms.translation, input.position.z * 0.5 + 0.5, 1.0);
+    output.position = uniforms.mvp * vec4<f32>(input.position, 1.0);
     let c = input.intensity / 255.0;
     output.color = vec4<f32>(c, c, c, 1.0);
     return output;
@@ -279,11 +346,21 @@ void Renderer::Zoom(float delta) {
 }
 
 void Renderer::UpdateUniforms() {
+    float aspect = 800.0f / 600.0f;
+    if (window) {
+        int w, h;
+        glfwGetWindowSize(window, &w, &h);
+        if (h > 0) aspect = static_cast<float>(w) / static_cast<float>(h);
+    }
+
+    Mat4 projection = Mat4::Perspective(3.14159f / 4.0f, aspect, 0.1f, 100.0f);
+    Mat4 view = Mat4::Translation(translationX, translationY, -2.0f); // Camera matches translation
+    Mat4 model = Mat4::RotationX(rotationX) * Mat4::RotationY(rotationY) * Mat4::Scale(zoomLevel);
+    
+    Mat4 mvp = projection * view * model;
+
     Uniforms u;
-    u.scale = zoomLevel;
-    u.padding1 = 0.0f;
-    u.translation[0] = translationX;
-    u.translation[1] = translationY;
+    std::memcpy(u.mvp, mvp.m, sizeof(mvp.m));
     queue.WriteBuffer(uniformBuffer, 0, &u, sizeof(Uniforms));
 }
 
@@ -294,37 +371,45 @@ void Renderer::Pan(float dx, float dy) {
 }
 
 void Renderer::OnMouseButton(int button, int action, int mods) {
-    if (button == GLFW_MOUSE_BUTTON_LEFT) {
-        if (action == GLFW_PRESS) {
-            isDragging = true;
-            if (window) {
-                glfwGetCursorPos(window, &lastMouseX, &lastMouseY);
-            }
-        } else if (action == GLFW_RELEASE) {
-            isDragging = false;
+    if (action == GLFW_PRESS) {
+        if (button == GLFW_MOUSE_BUTTON_LEFT) {
+            isDraggingLeft = true;
+        } else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+            isDraggingRight = true;
+        }
+        if (window) {
+            glfwGetCursorPos(window, &lastMouseX, &lastMouseY);
+        }
+    } else if (action == GLFW_RELEASE) {
+        if (button == GLFW_MOUSE_BUTTON_LEFT) {
+            isDraggingLeft = false;
+        } else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+            isDraggingRight = false;
         }
     }
 }
 
 void Renderer::OnCursorPos(double x, double y) {
-    if (isDragging) {
+    if (isDraggingLeft || isDraggingRight) {
         float deltaX = static_cast<float>(x - lastMouseX);
         float deltaY = static_cast<float>(y - lastMouseY);
         lastMouseX = x;
         lastMouseY = y;
-
-        int width = 800, height = 600;
-        if (window) {
-            glfwGetWindowSize(window, &width, &height);
+        
+        if (isDraggingLeft) {
+            // Rotation
+            rotationY += deltaX * 0.01f;
+            rotationX += deltaY * 0.01f;
+            UpdateUniforms();
+        } else if (isDraggingRight) {
+            // Panning
+            int width = 800, height = 600;
+            if (window) {
+                glfwGetWindowSize(window, &width, &height);
+            }
+            float ndcDeltaX = deltaX * (2.0f / width);
+            float ndcDeltaY = deltaY * (-2.0f / height); 
+            Pan(ndcDeltaX, ndcDeltaY);
         }
-
-        // Convert pixel delta to clip space delta
-        // Screen is [-1, 1] in width and height.
-        // Scale factor: 2.0 / dimension
-        // Invert Y because screen Y is top-down (0 at top), Clip Y is bottom-up (-1 at bottom, 1 at top)
-        float ndcDeltaX = deltaX * (2.0f / width);
-        float ndcDeltaY = deltaY * (-2.0f / height); 
-
-        Pan(ndcDeltaX, ndcDeltaY);
     }
 }
