@@ -12,6 +12,14 @@ Renderer::~Renderer() {}
 
 bool Renderer::Initialize(GLFWwindow* window, const std::string& preferredDevice) {
     if (!InitDevice(preferredDevice)) return false;
+    
+    // Create uniform buffer
+    wgpu::BufferDescriptor bufferDesc = {};
+    bufferDesc.size = sizeof(Uniforms);
+    bufferDesc.usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst;
+    uniformBuffer = device.CreateBuffer(&bufferDesc);
+    UpdateUniforms();
+
     if (!InitSurface(window)) return false;
     if (!InitPipeline()) return false;
     return true;
@@ -103,10 +111,17 @@ struct VertexOutput {
     @location(0) color: vec4<f32>,
 };
 
+struct Uniforms {
+    scale : f32,
+};
+@group(0) @binding(0) var<uniform> uniforms : Uniforms;
+
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = vec4<f32>(input.position.xy, input.position.z * 0.5 + 0.5, 1.0);
+    // Apply zoom scale. Note: input is already normalized to [-0.9, 0.9] range roughly.
+    // We scale x and y by zoom level.
+    output.position = vec4<f32>(input.position.xy * uniforms.scale, input.position.z * 0.5 + 0.5, 1.0);
     let c = input.intensity / 255.0;
     output.color = vec4<f32>(c, c, c, 1.0);
     return output;
@@ -156,6 +171,36 @@ bool Renderer::InitPipeline() {
     pipelineDesc.fragment = &fragmentState;
 
     pipelineDesc.primitive.topology = wgpu::PrimitiveTopology::PointList;
+
+    // Create BindGroupLayout and BindGroup
+    wgpu::BindGroupLayoutEntry bindingLayout = {};
+    bindingLayout.binding = 0;
+    bindingLayout.visibility = wgpu::ShaderStage::Vertex;
+    bindingLayout.buffer.type = wgpu::BufferBindingType::Uniform;
+    bindingLayout.buffer.minBindingSize = sizeof(Uniforms);
+
+    wgpu::BindGroupLayoutDescriptor bindGroupLayoutDesc = {};
+    bindGroupLayoutDesc.entryCount = 1;
+    bindGroupLayoutDesc.entries = &bindingLayout;
+    bindGroupLayout = device.CreateBindGroupLayout(&bindGroupLayoutDesc);
+
+    wgpu::PipelineLayoutDescriptor pipelineLayoutDesc = {};
+    pipelineLayoutDesc.bindGroupLayoutCount = 1;
+    pipelineLayoutDesc.bindGroupLayouts = &bindGroupLayout;
+    wgpu::PipelineLayout pipelineLayout = device.CreatePipelineLayout(&pipelineLayoutDesc);
+    pipelineDesc.layout = pipelineLayout;
+
+    wgpu::BindGroupEntry binding = {};
+    binding.binding = 0;
+    binding.buffer = uniformBuffer;
+    binding.offset = 0;
+    binding.size = sizeof(Uniforms);
+
+    wgpu::BindGroupDescriptor bindGroupDesc = {};
+    bindGroupDesc.layout = bindGroupLayout;
+    bindGroupDesc.entryCount = 1;
+    bindGroupDesc.entries = &binding;
+    bindGroup = device.CreateBindGroup(&bindGroupDesc);
 
     pipeline = device.CreateRenderPipeline(&pipelineDesc);
     return true;
@@ -214,6 +259,7 @@ void Renderer::Render() {
     wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
     wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPassDesc);
     pass.SetPipeline(pipeline);
+    pass.SetBindGroup(0, bindGroup);
     pass.SetVertexBuffer(0, vertexBuffer);
     pass.Draw(vertexCount);
     pass.End();
@@ -221,4 +267,17 @@ void Renderer::Render() {
     wgpu::CommandBuffer commands = encoder.Finish();
     queue.Submit(1, &commands);
     surface.Present();
+}
+
+void Renderer::Zoom(float delta) {
+    zoomLevel += delta * 0.1f;
+    if (zoomLevel < 0.1f) zoomLevel = 0.1f;
+    if (zoomLevel > 10.0f) zoomLevel = 10.0f;
+    UpdateUniforms();
+}
+
+void Renderer::UpdateUniforms() {
+    Uniforms u;
+    u.scale = zoomLevel;
+    queue.WriteBuffer(uniformBuffer, 0, &u, sizeof(Uniforms));
 }

@@ -4,6 +4,13 @@
 #include "PlyLoader.h"
 #include "Renderer.h"
 
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+    Renderer* renderer = reinterpret_cast<Renderer*>(glfwGetWindowUserPointer(window));
+    if (renderer) {
+        renderer->Zoom(static_cast<float>(yoffset));
+    }
+}
+
 int main(int argc, char** argv) {
     std::string filename;
     std::string preferredDevice;
@@ -42,6 +49,9 @@ int main(int argc, char** argv) {
     if (!renderer.Initialize(window, preferredDevice)) {
         return 1;
     }
+
+    glfwSetWindowUserPointer(window, &renderer);
+    glfwSetScrollCallback(window, scroll_callback);
 
     renderer.SetVertices(vertices);
 
