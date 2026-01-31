@@ -10,22 +10,67 @@ Renderer::Renderer() {}
 
 Renderer::~Renderer() {}
 
-bool Renderer::Initialize(GLFWwindow* window) {
-    if (!InitDevice()) return false;
+bool Renderer::Initialize(GLFWwindow* window, const std::string& preferredDevice) {
+    if (!InitDevice(preferredDevice)) return false;
     if (!InitSurface(window)) return false;
     if (!InitPipeline()) return false;
     return true;
 }
 
-bool Renderer::InitDevice() {
+bool Renderer::InitDevice(const std::string& preferredDevice) {
     instance = wgpu::CreateInstance();
     if (!instance) return false;
 
     dawn::native::Instance nativeInstance;
     auto adapters = nativeInstance.EnumerateAdapters();
     if (adapters.empty()) return false;
-    
-    WGPUDevice cDevice = adapters[0].CreateDevice();
+
+    WGPUDevice cDevice = nullptr;
+    std::string selectedName;
+
+    // Helper to decode StringView
+    auto decodeSV = [](wgpu::StringView sv) -> std::string {
+        if (!sv.data) return "";
+        if (sv.length == WGPU_STRLEN) return std::string(sv.data);
+        return std::string(sv.data, sv.length);
+    };
+
+    if (!preferredDevice.empty()) {
+        for (const auto& adapter : adapters) {
+            wgpu::AdapterInfo info = {};
+            // dawn::native::Adapter::Get() returns WGPUAdapter (C handle)
+            WGPUAdapter cAdapter = adapter.Get();
+            wgpuAdapterGetInfo(cAdapter, reinterpret_cast<WGPUAdapterInfo*>(&info));
+            
+            std::string deviceName = decodeSV(info.device);
+            if (deviceName.find(preferredDevice) != std::string::npos) {
+                // dawn::native::Adapter is const, but CreateDevice is non-const. 
+                // We need to const_cast or copy since EnumerateAdapters returns vector of objects.
+                // Actually, let's just make a mutable copy or cast since we need to call non-const method.
+                // dawn::native::Adapter is a light wrapper.
+                auto mutableAdapter = adapter;
+                cDevice = mutableAdapter.CreateDevice();
+                selectedName = deviceName;
+                std::cout << "Selected preferred device: " << selectedName << std::endl;
+                break;
+            }
+        }
+        if (!cDevice) {
+            std::cerr << "Preferred device '" << preferredDevice << "' not found. Falling back to default." << std::endl;
+        }
+    }
+
+    if (!cDevice) {
+        auto mutableAdapter = adapters[0];
+        cDevice = mutableAdapter.CreateDevice();
+        // Get name for logging
+        wgpu::AdapterInfo info = {};
+        WGPUAdapter cAdapter = adapters[0].Get();
+        wgpuAdapterGetInfo(cAdapter, reinterpret_cast<WGPUAdapterInfo*>(&info));
+        selectedName = decodeSV(info.device);
+        std::cout << "Selected default device: " << selectedName << std::endl;
+    }
+
     device = wgpu::Device::Acquire(cDevice);
     queue = device.GetQueue();
     

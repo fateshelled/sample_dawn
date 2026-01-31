@@ -11,7 +11,7 @@ public:
     Renderer();
     ~Renderer();
 
-    bool Initialize(GLFWwindow* window);
+    bool Initialize(GLFWwindow* window, const std::string& preferredDevice = "");
     void SetVertices(const std::vector<Vertex>& vertices);
     void Render();
 
@@ -25,7 +25,7 @@ private:
     uint32_t vertexCount = 0;
     wgpu::TextureFormat format = wgpu::TextureFormat::BGRA8Unorm;
 
-    bool InitDevice();
+    bool InitDevice(const std::string& preferredDevice);
     bool InitSurface(GLFWwindow* window);
     bool InitPipeline();
 };

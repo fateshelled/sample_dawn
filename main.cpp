@@ -5,12 +5,22 @@
 #include "Renderer.h"
 
 int main(int argc, char** argv) {
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <ply_file>" << std::endl;
-        return 1;
+    std::string filename;
+    std::string preferredDevice;
+
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--device" && i + 1 < argc) {
+            preferredDevice = argv[++i];
+        } else if (filename.empty()) {
+            filename = arg;
+        }
     }
 
-    std::string filename = argv[1];
+    if (filename.empty()) {
+        std::cerr << "Usage: " << argv[0] << " <ply_file> [--device <device_name_substring>]" << std::endl;
+        return 1;
+    }
     std::vector<Vertex> vertices;
     if (!PlyLoader::Load(filename, vertices)) {
         return 1;
@@ -29,7 +39,7 @@ int main(int argc, char** argv) {
     }
 
     Renderer renderer;
-    if (!renderer.Initialize(window)) {
+    if (!renderer.Initialize(window, preferredDevice)) {
         return 1;
     }
 
